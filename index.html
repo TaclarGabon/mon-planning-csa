@@ -37,7 +37,7 @@
 
     <div class="gateStep" id="teacherLoginStep">
       <button class="backProfiles" type="button">← Retour aux profils</button>
-      <div class="stepTitle"><div><small>ESPACE PROFESSEUR</small><h3>Choisissez votre nom</h3><p>Déclarez votre présence, entrez votre PIN puis connectez-vous.</p></div><input id="profLoginSearch" placeholder="🔎 Rechercher un professeur..."></div>
+      <div class="stepTitle"><div><small>ESPACE PROFESSEUR</small><h3>Choisissez votre nom</h3><p>Choisissez votre nom, entrez votre PIN puis connectez-vous.</p></div><input id="profLoginSearch" placeholder="🔎 Rechercher un professeur..."></div>
       <div class="profLoginGrid">
         <div class="profNameList" id="profLoginList"></div>
         <div class="profLoginPanel" id="profLoginPanel"><div class="empty">Sélectionnez votre nom dans la liste.</div></div>
@@ -105,5 +105,8 @@
 </main>
 
 <div id="settingsModal" class="modal"><div class="modalCard"><div class="modalHead"><div><small>RÉGLAGES DIRECTION</small><h3>Mon Planning • CSA</h3></div><button id="settingsClose">✕</button></div><section><h4>Administration</h4><div class="infoGrid"><div><span>Proviseur</span><b>Joseph HOUSSA</b></div><div><span>Code Direction</span><b>6200</b></div><div><span>Classes</span><b>36</b></div><div><span>Professeurs</span><b>65</b></div></div></section><section><h4>Codes professeurs</h4><p class="muted">Sélectionnez un professeur pour afficher son code de démonstration.</p><select id="settingsTeacher"></select><div id="settingsTeacherCode" class="codeCard"></div></section><section><h4>Réinitialisation</h4><button id="resetDemoBtn" class="resetBtn">↻ Réinitialiser la démo</button><p class="muted">Remet les présences en « à confirmer », les connexions en « hors ligne » et supprime les remplacements du jour. Les emplois du temps ne sont pas modifiés.</p></section></div></div>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-database-compat.js"></script>
 <script src="schedule-data.js"></script><script src="app.js"></script>
 </body></html>
