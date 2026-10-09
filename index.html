@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Mon Planning • CSA</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="splash" class="splash">
+  <img src="https://mon-planning-cours.hatchable.site/csa-logo.webp" alt="Logo Cours Secondaire Ambourhouet">
+  <div class="splashSmall">MON PLANNING • CSA</div>
+  <h1>Bienvenue au<br><strong>CSA</strong></h1>
+  <p>Travail • Discipline • Savoir</p>
+</div>
+
+<div id="profileGate" class="gate show">
+  <div class="gateCard">
+    <div class="gateBrand"><img src="https://mon-planning-cours.hatchable.site/csa-logo.webp" alt="CSA"><div><small>MON PLANNING • CSA</small><h2>Bienvenue</h2><p>Cours Secondaire Ambourhouet</p></div></div>
+
+    <div class="gateStep active" id="profileChooser">
+      <div class="profileChoices" aria-label="Choisir un profil">
+        <button class="profileChoice" type="button" data-profile="direction"><span>🏫</span><b>Direction</b><small>Vue générale de l’établissement</small></button>
+        <button class="profileChoice" type="button" data-profile="teacher"><span>👨🏾‍🏫</span><b>Professeur</b><small>Mon emploi du temps</small></button>
+        <button class="profileChoice" type="button" data-profile="student"><span>🎓</span><b>Élève</b><small>Planning de ma classe</small></button>
+      </div>
+      <p class="gateNote">Démo CSA • Emplois du temps 2026 transmis par l’établissement</p>
+    </div>
+
+    <div class="gateStep narrow" id="directionLoginStep">
+      <button class="backProfiles" type="button">← Retour aux profils</button>
+      <div class="loginRoleHero"><div class="loginRoleIcon">🏫</div><small>DIRECTION</small><h3>Direction</h3><p id="directionIdentity">Joseph HOUSSA • Proviseur</p></div>
+      <label>Entrez votre code PIN</label>
+      <input id="directionPin" inputmode="numeric" autocomplete="off" placeholder="Code PIN">
+      <button id="directionLoginBtn" class="primary">Se connecter</button>
+      <div id="directionError" class="error"></div>
+    </div>
+
+    <div class="gateStep" id="teacherLoginStep">
+      <button class="backProfiles" type="button">← Retour aux profils</button>
+      <div class="stepTitle"><div><small>ESPACE PROFESSEUR</small><h3>Choisissez votre nom</h3><p>Déclarez votre présence, entrez votre PIN puis connectez-vous.</p></div><input id="profLoginSearch" placeholder="🔎 Rechercher un professeur..."></div>
+      <div class="profLoginGrid">
+        <div class="profNameList" id="profLoginList"></div>
+        <div class="profLoginPanel" id="profLoginPanel"><div class="empty">Sélectionnez votre nom dans la liste.</div></div>
+      </div>
+    </div>
+
+    <div class="gateStep narrow" id="studentLoginStep">
+      <button class="backProfiles" type="button">← Retour aux profils</button>
+      <div class="loginRoleHero"><div class="loginRoleIcon">🎓</div><small>ÉLÈVE</small><h3>Mon planning</h3><p>Sélectionnez votre classe et entrez votre nom.</p></div>
+      <label>Ma classe</label><select id="studentLoginClass"></select>
+      <label>Prénom / nom</label><input id="studentLoginName" placeholder="Votre nom">
+      <button id="studentLoginBtn" class="primary">Accéder à mon planning</button>
+      <div id="studentError" class="error"></div>
+    </div>
+  </div>
+</div>
+
+<header class="topbar">
+  <div class="brand"><img src="https://mon-planning-cours.hatchable.site/csa-logo.webp" alt="CSA"><div><small>MON PLANNING • CSA</small><b>Cours Secondaire Ambourhouet</b></div></div>
+  <div class="userBox"><div><b id="userName"></b><small id="userRole"></small></div><button id="settingsBtn" title="Réglages">⚙️</button><button id="logoutBtn">Déconnexion</button></div>
+</header>
+<main>
+  <nav class="roleTabs">
+    <button class="role active" data-view="direction">🏫 Direction</button>
+    <button class="role" data-view="teacher">👨🏾‍🏫 Professeurs</button>
+    <button class="role" data-view="classes">📚 Mes classes</button>
+    <button class="role" data-view="student">🎓 Élèves</button>
+    <button class="role" data-view="parent">👨‍👩‍👧 Parents</button>
+  </nav>
+
+  <section class="view active" id="directionView">
+    <div class="hero directionHero"><div><div class="eyebrow">VUE DIRECTION</div><h2>Bonjour, <span id="directorHello">Joseph HOUSSA</span>.</h2><p>Une vue globale des classes, des professeurs et des cours du jour.</p></div><div class="clockCard"><small>Heure Libreville</small><b id="librevilleClock">--:--</b><span id="librevilleDay">--</span></div></div>
+    <div class="metricRow"><div class="metric metricTeachers"><b id="mTeachers">65</b><span>Professeurs</span></div><div class="metric metricClasses"><b id="mClasses">36</b><span>Classes</span></div><div class="metric metricSubjects"><b id="mSubjects">16</b><span>Matières</span></div><div class="metric metricAbsent"><b id="mAbsent">0</b><span>Absents aujourd’hui</span></div></div>
+    <div class="directionTools"><select id="directionSearch"></select><div class="statusFilters"><button class="filter active" data-filter="all">Tous</button><button class="filter" data-filter="teaching">En cours</button><button class="filter" data-filter="free">Libres</button><button class="filter" data-filter="absent">Absents</button></div></div>
+    <div class="directionTeacherPanel" id="directionTeacherPanel"></div>
+    <div class="staffList" id="staffList"></div>
+  </section>
+
+  <section class="view" id="teacherView">
+    <div class="teacherTop"><div><div class="eyebrow">ESPACE PROFESSEUR</div><h2 id="teacherTitle">Mon planning</h2><p id="teacherSubjects"></p></div><select id="teacherSelect"></select></div>
+    <div id="teacherAbsencePanel" class="absencePanel"></div>
+    <div class="switcher"><button id="teacherTodayBtn" class="active">Aujourd’hui</button><button id="teacherWeekBtn">Semaine</button></div>
+    <div id="teacherSchedule" class="scheduleList"></div>
+  </section>
+
+  <section class="view" id="classesView">
+    <div class="studentIntro"><div class="eyebrow">VUE DIRECTION • CLASSES</div><h2>Planning par classe.</h2><p>Choisissez une classe pour voir les professeurs et les cours prévus aujourd’hui ou sur toute la semaine.</p></div>
+    <div class="studentSearch directionClassControls"><select id="directionClassSelect"></select><button id="directionClassToday">Aujourd’hui</button><button id="directionClassWeek">Voir la semaine</button></div>
+    <div class="parentSchedule" id="directionClassSchedule"></div>
+  </section>
+
+  <section class="view" id="studentView">
+    <div class="directorPreviewLogin" id="directorStudentLogin"><div><small>APERÇU DU PROFIL ÉLÈVE</small><h3>Simuler une connexion élève</h3><p>La Direction peut vérifier ce que voit un élève sans quitter son profil.</p></div><div class="previewForm"><input id="directorStudentName" placeholder="Prénom de l’élève"><select id="directorStudentClass"></select><button id="directorStudentEnter">Afficher la vue élève</button></div></div>
+    <div id="studentProfileContent">
+      <div class="studentIntro"><div class="eyebrow">ESPACE ÉLÈVE</div><h2>Mon emploi du temps.</h2><p id="studentIdentity"></p></div>
+      <div class="switcher"><button id="studentTodayBtn" class="active">Aujourd’hui</button><button id="studentWeekBtn">Semaine</button></div>
+      <div id="studentSchedule" class="parentSchedule"></div>
+    </div>
+  </section>
+
+  <section class="view" id="parentView">
+    <div class="directorPreviewLogin" id="directorParentLogin"><div><small>APERÇU DU PROFIL PARENT</small><h3>Simuler une connexion parent</h3><p>Entrez un nom et la classe de l’enfant pour afficher exactement la vue Parent.</p></div><div class="previewForm"><input id="directorParentName" placeholder="Nom du parent"><select id="directorParentClass"></select><button id="directorParentEnter">Afficher la vue parent</button></div></div>
+    <div id="parentProfileContent"><div class="studentIntro"><div class="eyebrow">ESPACE PARENT</div><h2>Planning de mon enfant.</h2><p>Les cours de la classe, avec les horaires et les professeurs.</p></div><div class="studentSearch"><select id="parentClassSelect"></select><button id="parentTodayBtn">Aujourd’hui</button><button id="parentWeekBtn">Semaine</button></div><div class="parentSchedule" id="parentSchedule"></div></div>
+  </section>
+</main>
+
+<div id="settingsModal" class="modal"><div class="modalCard"><div class="modalHead"><div><small>RÉGLAGES DIRECTION</small><h3>Mon Planning • CSA</h3></div><button id="settingsClose">✕</button></div><section><h4>Administration</h4><div class="infoGrid"><div><span>Proviseur</span><b>Joseph HOUSSA</b></div><div><span>Code Direction</span><b>6200</b></div><div><span>Classes</span><b>36</b></div><div><span>Professeurs</span><b>65</b></div></div></section><section><h4>Codes professeurs</h4><p class="muted">Sélectionnez un professeur pour afficher son code de démonstration.</p><select id="settingsTeacher"></select><div id="settingsTeacherCode" class="codeCard"></div></section><section><h4>Réinitialisation</h4><button id="resetDemoBtn" class="resetBtn">↻ Réinitialiser la démo</button><p class="muted">Remet les présences en « à confirmer », les connexions en « hors ligne » et supprime les remplacements du jour. Les emplois du temps ne sont pas modifiés.</p></section></div></div>
+<script src="schedule-data.js"></script><script src="app.js"></script>
+</body></html>
