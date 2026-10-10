@@ -450,7 +450,7 @@ function splitLessonPeriods(lesson,className,teacherId,teacherName){
     groupKey,slotIndex:i,slotCount:pairs.length
   }));
   slots.forEach((x,i)=>{
-    x.callKey=[x.start.replace('h',''),x.end.replace('h',''),String(x.subject).replace(/[^A-Za-z0-9]+/g,'_'),x.teacherId||String(x.teacherName).replace(/[^A-Za-z0-9]+/g,'_')].join('_');
+    x.callKey=[x.start.replace('h',''),x.end.replace('h',''),String(x.className).replace(/[^A-Za-z0-9]+/g,'_'),String(x.subject).replace(/[^A-Za-z0-9]+/g,'_'),x.teacherId||String(x.teacherName).replace(/[^A-Za-z0-9]+/g,'_')].join('_');
     x.inheritKey=slots[0].callKey;
   });
   return slots;
