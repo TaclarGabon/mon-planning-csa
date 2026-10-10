@@ -28,5 +28,16 @@ V4 validée — migration GitHub effectuée.
 - Code Direction : `6200`
 - Codes professeurs : `6201` à `6265`
 
+## V5 — suivi des élèves
+- 4 profils visibles : Direction, Professeur, Élève, Parent
+- Appel de classe par tranche horaire
+- 10 élèves de démonstration par classe
+- Présents / Absents / heure de l’appel
+- Reprise automatique de l’appel sur une 2e heure consécutive, avec mise à jour possible
+- Vue Parent : statut de son enfant par cours
+- Vue Direction : synthèse des présences élèves
+- Synchronisation Firebase Realtime Database
+- Logo CSA bleu clair validé
+
 ## Étape suivante
 Connexion Firebase Realtime Database pour synchroniser les statuts, absences et remplacements entre plusieurs appareils.
