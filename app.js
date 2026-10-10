@@ -5,14 +5,20 @@ const DAYS=['Lundi','Mardi','Mercredi','Jeudi','Vendredi'];
 const PROFILE_KEY='csa-mon-planning-profile-v2';
 const ATT_KEY='csa-mon-planning-attendance-v2';
 const CONN_KEY='csa-mon-planning-connections-v1';
+const STUDENT_ATT_KEY='csa-student-attendance-v1';
 let profile=null;
 let selectedTeacher=DATA.teachers[0]?.id||'';
 let selectedLoginTeacher='';
 let filter='all';
 let studentPreview=null,parentPreview=null;
-let attendance={},connections={};
+let attendance={},connections={},studentAttendance={};
+let teacherSlotCache={},currentCall=null;
 try{attendance=JSON.parse(localStorage.getItem(ATT_KEY)||'{}')}catch(e){attendance={}}
 try{connections=JSON.parse(localStorage.getItem(CONN_KEY)||'{}')}catch(e){connections={}}
+try{studentAttendance=JSON.parse(localStorage.getItem(STUDENT_ATT_KEY)||'{}')}catch(e){studentAttendance={}}
+
+const DEMO_STUDENT_NAMES=['Mathis','Alicia','Kevin','Grâce','Jean-Paul','Naomi','Lucas','Ethan','Sarah','Junior'];
+const PERIOD_SLOTS=[['07h30','08h20'],['08h20','09h10'],['09h40','10h30'],['10h30','11h20'],['11h35','12h25'],['12h25','13h15'],['13h15','14h00'],['14h00','14h50'],['14h50','15h40'],['15h50','16h40'],['16h40','17h30']];
 
 const firebaseConfig={
   apiKey:"AIzaSyCGRnVyRCJRb_s_9nogLiqiPFN3HQfTm94",
@@ -425,5 +431,331 @@ window.addEventListener('storage',e=>{
   if(profile?.role==='direction')renderDirection();
   if($('teacherLoginStep')?.classList.contains('active')){renderTeacherLoginList($('profLoginSearch').value);if(selectedLoginTeacher)renderTeacherLoginPanel()}
 });
+
+/* ===== V5 : appel élèves + profil Parent ===== */
+function safeKey(v){return encodeURIComponent(String(v||'')).replace(/\./g,'%2E')}
+function rosterForClass(className){
+  const prefix=safeKey(className).replace(/%/g,'').slice(0,12)||'classe';
+  return DEMO_STUDENT_NAMES.map((name,i)=>({id:`${prefix}_s${String(i+1).padStart(2,'0')}`,name}));
+}
+function studentAttendancePath(){return `schools/csa/studentAttendance/${nowLibreville().dateKey}`}
+function splitLessonPeriods(lesson,className,teacherId,teacherName){
+  const a=mins(lesson.start),b=mins(lesson.end);
+  let pairs=PERIOD_SLOTS.filter(([s,e])=>mins(s)>=a&&mins(e)<=b);
+  if(!pairs.length)pairs=[[lesson.start,lesson.end]];
+  const groupKey=[lesson.day,lesson.start,lesson.end,lesson.subject,className,teacherId||teacherName||''].join('|');
+  const slots=pairs.map(([start,end],i)=>({
+    day:lesson.day,start,end,subject:lesson.subject,className,
+    teacherId:teacherId||'',teacherName:teacherName||lesson.teacher||'',
+    groupKey,slotIndex:i,slotCount:pairs.length
+  }));
+  slots.forEach((x,i)=>{
+    x.callKey=[x.start.replace('h',''),x.end.replace('h',''),String(x.subject).replace(/[^A-Za-z0-9]+/g,'_'),x.teacherId||String(x.teacherName).replace(/[^A-Za-z0-9]+/g,'_')].join('_');
+    x.inheritKey=slots[0].callKey;
+  });
+  return slots;
+}
+function teacherTodaySlots(t){
+  const day=nowLibreville().day,out=[];
+  t.schedule.filter(x=>x.day===day).forEach(lesson=>{
+    (lesson.classes||[]).forEach(c=>out.push(...splitLessonPeriods(lesson,c,t.id,t.name)));
+  });
+  return out.sort((a,b)=>mins(a.start)-mins(b.start)||a.className.localeCompare(b.className));
+}
+function classTodaySlots(className){
+  const day=nowLibreville().day,out=[];
+  (DATA.classes[className]||[]).filter(x=>x.day===day).forEach(lesson=>{
+    const t=DATA.teachers.find(z=>z.name===lesson.teacher);
+    out.push(...splitLessonPeriods(lesson,className,t?.id||'',lesson.teacher));
+  });
+  return out.sort((a,b)=>mins(a.start)-mins(b.start));
+}
+function classCalls(className){return studentAttendance[safeKey(className)]||{}}
+function callForSlot(slot){
+  const calls=classCalls(slot.className);
+  if(calls[slot.callKey])return{record:calls[slot.callKey],inherited:false};
+  if(slot.slotIndex>0&&calls[slot.inheritKey])return{record:calls[slot.inheritKey],inherited:true};
+  return{record:null,inherited:false};
+}
+function callCounts(record){
+  const values=record?Object.values(record.students||{}):[];
+  return{present:values.filter(x=>x==='present').length,absent:values.filter(x=>x==='absent').length};
+}
+async function syncStudentCall(slot,record){
+  const ok=await initFirebase();if(!ok||!firebaseDb)return false;
+  try{
+    await firebaseDb.ref(`${studentAttendancePath()}/${safeKey(slot.className)}/${slot.callKey}`).set(record);
+    return true;
+  }catch(err){console.warn('Synchronisation appel élèves impossible',err);return false}
+}
+function refreshLiveUI(){
+  if(profile?.role==='direction'){
+    renderDirection();
+    if($('studentView')?.classList.contains('active'))renderDirectionStudentAttendance();
+  }
+  if(profile?.role==='teacher'&&profile.teacherId&&$('teacherView')?.classList.contains('active')){
+    const mode=$('teacherTodayBtn')?.classList.contains('active')?'today':'week';
+    renderTeacher(mode);
+  }
+  if(profile?.role==='parent'&&$('parentView')?.classList.contains('active')){
+    const mode=$('parentTodayBtn')?.classList.contains('active')?'today':'week';
+    renderParent(mode);
+  }
+  if($('teacherLoginStep')?.classList.contains('active')&&!selectedLoginTeacher)renderTeacherLoginList($('profLoginSearch').value);
+}
+function startFirebaseListeners(){
+  if(firebaseWatchStarted||!firebaseDb)return;
+  firebaseWatchStarted=true;
+  firebaseDb.ref(attendancePath()).on('value',snap=>{
+    attendance=snap.val()||{};
+    localStorage.setItem(ATT_KEY,JSON.stringify(attendance));
+    refreshLiveUI();
+  },err=>console.warn('Firebase présence école:',err));
+  firebaseDb.ref(presencePath()).on('value',snap=>{
+    const raw=snap.val()||{},next={};
+    Object.entries(raw).forEach(([teacherId,sessions])=>{next[teacherId]=!!(sessions&&typeof sessions==='object'&&Object.keys(sessions).length)});
+    connections=next;
+    localStorage.setItem(CONN_KEY,JSON.stringify(connections));
+    refreshLiveUI();
+  },err=>console.warn('Firebase connexion application:',err));
+  firebaseDb.ref(studentAttendancePath()).on('value',snap=>{
+    studentAttendance=snap.val()||{};
+    localStorage.setItem(STUDENT_ATT_KEY,JSON.stringify(studentAttendance));
+    refreshLiveUI();
+  },err=>console.warn('Firebase appel élèves:',err));
+}
+async function resetFirebaseDemo(){
+  const ok=await initFirebase();if(!ok||!firebaseDb)return false;
+  try{
+    await Promise.all([
+      firebaseDb.ref(attendancePath()).remove(),
+      firebaseDb.ref(presencePath()).remove(),
+      firebaseDb.ref(studentAttendancePath()).remove()
+    ]);
+    myPresenceRef=null;studentAttendance={};localStorage.setItem(STUDENT_ATT_KEY,'{}');
+    return true;
+  }catch(err){console.warn('Réinitialisation Firebase impossible',err);return false}
+}
+function initOptions(){
+  const topts=DATA.teachers.map(t=>`<option value="${t.id}">${esc(t.name)} — ${esc(t.subjects.join(' / '))}</option>`).join('');
+  $('teacherSelect').innerHTML=topts;
+  $('directionSearch').innerHTML='<option value="">Tous les professeurs</option>'+topts;
+  $('settingsTeacher').innerHTML=topts;
+  const blank='<option value="">— Choisir une classe —</option>';
+  const copts=classNames.map(c=>`<option>${esc(c)}</option>`).join('');
+  ['studentLoginClass','parentLoginClass','directionClassSelect','directorStudentClass','directorParentClass','parentClassSelect'].forEach(id=>$(id).innerHTML=blank+copts);
+  $('directionClassSelect').value=classNames[0]||'';
+  updateSettingsTeacherCode();
+}
+function populateParentChildren(){
+  const c=$('parentLoginClass').value,sel=$('parentLoginChild');
+  if(!c){sel.disabled=true;sel.innerHTML='<option value="">— Choisir d’abord une classe —</option>';return}
+  const roster=rosterForClass(c);
+  sel.disabled=false;
+  sel.innerHTML='<option value="">— Choisir mon enfant —</option>'+roster.map(x=>`<option value="${x.id}">${esc(x.name)}</option>`).join('');
+}
+function showProfileChooser(){
+  $('directionError').textContent='';$('studentError').textContent='';$('parentError').textContent='';
+  $('directionPin').value='';$('studentLoginName').value='';$('studentLoginClass').value='';
+  $('parentLoginName').value='';$('parentLoginClass').value='';populateParentChildren();
+  $('profLoginSearch').value='';selectedLoginTeacher='';
+  $('teacherLoginStep').classList.remove('teacherLoginStepSelected');
+  $('profLoginPanel').innerHTML='<div class="empty">Sélectionnez votre nom dans la liste.</div>';
+  renderTeacherLoginList();showGateStep('profileChooser');
+}
+function openRoleLogin(role){
+  if(role==='direction')showGateStep('directionLoginStep');
+  if(role==='teacher'){selectedLoginTeacher='';$('teacherLoginStep').classList.remove('teacherLoginStepSelected');$('profLoginPanel').innerHTML='<div class="empty">Sélectionnez votre nom dans la liste.</div>';renderTeacherLoginList();showGateStep('teacherLoginStep')}
+  if(role==='student')showGateStep('studentLoginStep');
+  if(role==='parent'){populateParentChildren();showGateStep('parentLoginStep')}
+}
+function loginParent(){
+  $('parentError').textContent='';
+  const className=$('parentLoginClass').value,childId=$('parentLoginChild').value;
+  if(!className){$('parentError').textContent='Choisissez la classe de votre enfant.';return}
+  if(!childId){$('parentError').textContent='Choisissez votre enfant.';return}
+  const child=rosterForClass(className).find(x=>x.id===childId);
+  const parentName=$('parentLoginName').value.trim()||`Parent de ${child?.name||''}`;
+  profile={role:'parent',firstName:parentName,className,childId,childName:child?.name||''};
+  localStorage.setItem(PROFILE_KEY,JSON.stringify(profile));
+  applyProfile();
+}
+function renderTeacherTodayBoard(t){
+  const slots=teacherTodaySlots(t);
+  teacherSlotCache={};slots.forEach(x=>teacherSlotCache[x.callKey]=x);
+  if(!slots.length)return'<div class="empty">Aucun cours prévu aujourd’hui.</div>';
+  const rows=slots.map(slot=>{
+    const info=callForSlot(slot),counts=callCounts(info.record),done=!!info.record;
+    let action;
+    if(info.inherited){
+      action=`<button class="callRowAction inherited" data-call="${slot.callKey}">ℹ Reprend automatiquement l’appel précédent<small>Mise à jour possible</small></button>`;
+    }else if(done){
+      action=`<button class="callRowAction done" data-call="${slot.callKey}">✓ Appel effectué</button>`;
+    }else{
+      action=`<button class="callRowAction" data-call="${slot.callKey}">☷ Faire l’appel</button>`;
+    }
+    return `<div class="attendanceRow">
+      <div class="attendanceTime">${slot.start}–<br>${slot.end}</div>
+      <div class="attendanceSubject">${esc(slot.subject)}</div>
+      <div class="attendanceMetric present ${done?'done':''}"><span>Présents</span><b>${done?counts.present:'—'}</b></div>
+      <div class="attendanceMetric absent ${done?'done':''}"><span>Absents</span><b>${done?counts.absent:'—'}</b></div>
+      <div class="attendanceMetric calltime ${done?'done':''}"><span>${done?'Appel fait à':'Appel à faire'}</span><b>${done?esc(info.record.calledAt||'—'):'—'}</b></div>
+      ${action}
+    </div>`;
+  }).join('');
+  return `<div class="teacherTodayBoard"><div class="teacherTodayHeader"><div><h3>Mes cours du jour</h3><small>${slots.length} tranche(s) horaire(s) • ${nowLibreville().day}</small></div></div>${rows}</div>`;
+}
+function renderTeacher(mode='today'){
+  const t=teacherById(profile?.role==='teacher'?profile.teacherId:$('teacherSelect').value||selectedTeacher);if(!t)return;
+  selectedTeacher=t.id;$('teacherSelect').value=t.id;$('teacherSelect').classList.toggle('hidden',profile?.role==='teacher');
+  $('teacherTitle').textContent=mode==='today'?'Mon planning du jour':(profile?.role==='teacher'?'Mon planning de la semaine':t.name);
+  $('teacherSubjects').textContent=mode==='today'?'Consultez vos cours et lancez l’appel de chaque classe.':t.subjects.join(' • ');
+  $('teacherSchedule').innerHTML=mode==='today'?renderTeacherTodayBoard(t):scheduleMarkup(t.schedule,false);
+  $('teacherTodayBtn').classList.toggle('active',mode==='today');$('teacherWeekBtn').classList.toggle('active',mode==='week');
+  renderTeacherAbsence(t);
+  if(mode==='today')document.querySelectorAll('[data-call]').forEach(b=>b.onclick=()=>openStudentCall(b.dataset.call));
+}
+function openStudentCall(callKey){
+  const slot=teacherSlotCache[callKey];if(!slot)return;
+  const info=callForSlot(slot),roster=rosterForClass(slot.className);
+  const statuses={};
+  roster.forEach(x=>statuses[x.id]=info.record?.students?.[x.id]||'present');
+  currentCall={slot,statuses,baseRecord:info.record||null};
+  $('callTitle').textContent=`Appel — ${slot.className}`;
+  $('callSubtitle').textContent=`${slot.subject} • ${slot.start}–${slot.end}`;
+  $('callTimeLabel').textContent=info.record?.calledAt||'À faire';
+  $('callSearch').value='';
+  renderCallStudentList();
+  $('studentCallModal').classList.add('show');
+}
+function renderCallStudentList(){
+  if(!currentCall)return;
+  const q=($('callSearch').value||'').trim().toLowerCase(),roster=rosterForClass(currentCall.slot.className);
+  const filtered=roster.filter(x=>!q||x.name.toLowerCase().includes(q));
+  $('callStudentList').innerHTML=filtered.map((x,i)=>{
+    const st=currentCall.statuses[x.id]||'present';
+    const initials=x.name.split(/[- ]/).map(v=>v[0]).join('').slice(0,2).toUpperCase();
+    return `<div class="callStudentRow"><div class="studentNameCell"><span class="studentAvatar">${initials}</span><span>${i+1}. ${esc(x.name)}</span></div>
+      <button class="attendanceToggle ${st==='present'?'active present':''}" data-sid="${x.id}" data-state="present">✓ Présent</button>
+      <button class="attendanceToggle ${st==='absent'?'active absent':''}" data-sid="${x.id}" data-state="absent">✕ Absent</button></div>`;
+  }).join('');
+  document.querySelectorAll('.attendanceToggle').forEach(b=>b.onclick=()=>{
+    currentCall.statuses[b.dataset.sid]=b.dataset.state;renderCallStudentList();
+  });
+  const counts=callCounts({students:currentCall.statuses});
+  $('callPresentCount').textContent=counts.present;$('callAbsentCount').textContent=counts.absent;
+}
+function closeStudentCall(){$('studentCallModal').classList.remove('show');currentCall=null}
+async function finishStudentCall(){
+  if(!currentCall)return;
+  const slot=currentCall.slot,record={
+    calledAt:nowLibreville().time,teacherId:slot.teacherId,teacherName:slot.teacherName,
+    className:slot.className,subject:slot.subject,start:slot.start,end:slot.end,
+    students:{...currentCall.statuses}
+  };
+  const ck=safeKey(slot.className);
+  if(!studentAttendance[ck])studentAttendance[ck]={};
+  studentAttendance[ck][slot.callKey]=record;
+  localStorage.setItem(STUDENT_ATT_KEY,JSON.stringify(studentAttendance));
+  await syncStudentCall(slot,record);
+  closeStudentCall();renderTeacher('today');
+  if(profile?.role==='direction')renderDirectionStudentAttendance();
+}
+function renderDirectionStudentAttendance(){
+  const el=$('directionStudentAttendance');if(!el)return;
+  if(profile?.role!=='direction'){el.innerHTML='';return}
+  let present=0,absent=0,calledClasses=0;const absentees=[];
+  classNames.forEach(c=>{
+    const calls=classCalls(c),records=Object.values(calls);
+    if(!records.length)return;
+    records.sort((a,b)=>String(a.calledAt||'').localeCompare(String(b.calledAt||'')));
+    const rec=records[records.length-1];calledClasses++;
+    const roster=rosterForClass(c);
+    roster.forEach(st=>{
+      const v=rec.students?.[st.id];
+      if(v==='present')present++;
+      if(v==='absent'){absent++;absentees.push(`${st.name} • ${c}`)}
+    });
+  });
+  el.innerHTML=`<div class="directionAttendanceSummary"><div class="eyebrow">PRÉSENCE DES ÉLÈVES • AUJOURD’HUI</div><h3>Suivi des appels de classe</h3>
+    <div class="studentStatRow"><div class="studentStat present"><span>Présents</span><b>${present}</b></div><div class="studentStat absent"><span>Absents</span><b>${absent}</b></div><div class="studentStat pending"><span>Classes appelées</span><b>${calledClasses}/${classNames.length}</b></div></div>
+    ${absentees.length?`<div class="absenteeList">${absentees.slice(0,20).map(x=>`<span class="absenteeTag">${esc(x)}</span>`).join('')}</div>`:'<p class="muted">Aucune absence élève enregistrée pour le moment.</p>'}
+  </div>`;
+}
+function prepareStudent(){
+  if(profile?.role==='direction'){
+    renderDirectionStudentAttendance();
+    studentPreview=null;$('directorStudentLogin').style.display='grid';$('studentProfileContent').style.display='none';$('directorStudentName').value='';$('directorStudentClass').value='';return;
+  }
+  $('directionStudentAttendance').innerHTML='';
+  $('directorStudentLogin').style.display='none';$('studentProfileContent').style.display='block';renderStudent('today');
+}
+function parentTodayMarkup(className,childId,childName){
+  const slots=classTodaySlots(className);
+  if(!slots.length)return'<div class="empty">Aucun cours prévu aujourd’hui.</div>';
+  return `<div class="parentChildBanner"><div><b>${esc(childName)}</b><span>${esc(className)}</span></div><strong>Suivi du jour</strong></div>
+  <section class="dayBlock"><div class="dayHead"><b>${nowLibreville().day}</b><span>Aujourd’hui</span></div>
+  ${slots.map(slot=>{
+    const info=callForSlot(slot),state=info.record?.students?.[childId],time=info.record?.calledAt||'';
+    let badge='<span class="childPresence pending">À venir</span>';
+    if(state==='present')badge=`<span class="childPresence present">✓ Présent • ${esc(time)}</span>`;
+    if(state==='absent')badge=`<span class="childPresence absent">✕ Absent • ${esc(time)}</span>`;
+    return `<div class="parentAttendanceRow"><time>${slot.start}–${slot.end}</time><div><strong>${esc(slot.subject)}</strong><small>${esc(slot.teacherName)}</small></div>${badge}</div>`;
+  }).join('')}</section>`;
+}
+function prepareParent(){
+  if(profile?.role==='direction'){
+    parentPreview=null;$('directorParentLogin').style.display='grid';$('parentProfileContent').style.display='none';$('directorParentName').value='';$('directorParentClass').value='';return;
+  }
+  $('directorParentLogin').style.display='none';$('parentProfileContent').style.display='block';
+  $('parentClassSelect').value=profile.className;
+  $('parentClassSelect').style.display=profile?.role==='parent'?'none':'block';
+  $('parentIdentity').textContent=profile?.role==='parent'?`${profile.childName} • ${profile.className} — présence en classe et heure de l’appel.`:'Les cours de la classe, avec les horaires et les professeurs.';
+  renderParent('today');
+}
+function renderParent(mode='today'){
+  const c=profile?.role==='parent'?profile.className:($('parentClassSelect').value||(profile?.role==='direction'?parentPreview?.className:profile?.className));
+  if(!c)return;
+  $('parentClassSelect').value=c;
+  $('parentSchedule').innerHTML=(profile?.role==='parent'&&mode==='today')
+    ?parentTodayMarkup(c,profile.childId,profile.childName)
+    :classMarkup(c,mode==='today'?nowLibreville().day:null);
+  $('parentTodayBtn').classList.toggle('active',mode==='today');
+  $('parentWeekBtn').classList.toggle('active',mode==='week');
+}
+function wire(){
+  document.querySelectorAll('.profileChoice').forEach(b=>b.onclick=()=>openRoleLogin(b.dataset.profile));
+  document.querySelectorAll('.backProfiles').forEach(b=>b.onclick=showProfileChooser);
+  $('directionLoginBtn').onclick=loginDirection;$('studentLoginBtn').onclick=loginStudent;$('parentLoginBtn').onclick=loginParent;
+  $('parentLoginClass').onchange=populateParentChildren;
+  $('profLoginSearch').oninput=()=>renderTeacherLoginList($('profLoginSearch').value);
+  $('logoutBtn').onclick=logout;
+  document.querySelectorAll('.role').forEach(b=>b.onclick=()=>activate(b.dataset.view));
+  $('directionSearch').onchange=renderStaff;
+  document.querySelectorAll('.filter').forEach(b=>b.onclick=()=>{filter=b.dataset.filter;document.querySelectorAll('.filter').forEach(x=>x.classList.toggle('active',x===b));renderStaff()});
+  $('teacherSelect').onchange=()=>renderTeacher('today');
+  $('teacherTodayBtn').onclick=()=>renderTeacher('today');$('teacherWeekBtn').onclick=()=>renderTeacher('week');
+  $('directionClassToday').onclick=()=>renderDirectionClass('today');$('directionClassWeek').onclick=()=>renderDirectionClass('week');$('directionClassSelect').onchange=()=>renderDirectionClass('week');
+  $('studentTodayBtn').onclick=()=>renderStudent('today');$('studentWeekBtn').onclick=()=>renderStudent('week');
+  $('parentTodayBtn').onclick=()=>renderParent('today');$('parentWeekBtn').onclick=()=>renderParent('week');$('parentClassSelect').onchange=()=>renderParent('week');
+  $('directorStudentEnter').onclick=()=>{const name=$('directorStudentName').value.trim(),className=$('directorStudentClass').value;if(!name||!className)return;studentPreview={name,className};$('directorStudentLogin').style.display='none';$('studentProfileContent').style.display='block';renderStudent('week')};
+  $('directorParentEnter').onclick=()=>{const name=$('directorParentName').value.trim(),className=$('directorParentClass').value;if(!name||!className)return;parentPreview={name,className};$('directorParentLogin').style.display='none';$('parentProfileContent').style.display='block';$('parentClassSelect').style.display='block';$('parentClassSelect').value=className;renderParent('week')};
+  $('callClose').onclick=closeStudentCall;$('callCancel').onclick=closeStudentCall;$('callFinish').onclick=finishStudentCall;$('callSearch').oninput=renderCallStudentList;
+  $('settingsBtn').onclick=()=>$('settingsModal').classList.add('show');$('settingsClose').onclick=()=>$('settingsModal').classList.remove('show');
+  $('settingsTeacher').onchange=updateSettingsTeacherCode;
+  $('resetDemoBtn').onclick=async()=>{if(!confirm('Réinitialiser la démo ? Les présences repasseront à confirmer, tous les professeurs seront hors ligne, les appels élèves et les remplacements seront supprimés.'))return;attendance={};connections={};studentAttendance={};localStorage.setItem(ATT_KEY,'{}');localStorage.setItem(STUDENT_ATT_KEY,'{}');saveConnections();await resetFirebaseDemo();renderDirection();renderDirectionStudentAttendance();$('resetDemoBtn').textContent='✓ Démo réinitialisée';setTimeout(()=>$('resetDemoBtn').textContent='↻ Réinitialiser la démo',1400)};
+}
+function boot(){
+  initOptions();wire();renderTeacherLoginList();
+  setInterval(()=>{if(profile?.role==='direction')renderDirection()},60000);
+  setTimeout(()=>$('splash').classList.add('hide'),1650);
+  try{profile=JSON.parse(localStorage.getItem(PROFILE_KEY)||'null')}catch(e){profile=null}
+  initFirebase().then(ok=>{if(ok&&profile?.role==='teacher'&&profile.teacherId)markTeacherOnline(profile.teacherId)});
+  if(profile)applyProfile();else showProfileChooser();
+}
+window.addEventListener('storage',e=>{
+  if(e.key===STUDENT_ATT_KEY){try{studentAttendance=JSON.parse(e.newValue||'{}')}catch(_){studentAttendance={}};refreshLiveUI()}
+});
+
 boot();
 })();
